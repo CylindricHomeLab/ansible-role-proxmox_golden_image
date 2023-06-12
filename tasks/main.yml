@@ -1,0 +1,83 @@
+---
+- name: Install packages
+  ansible.builtin.package:
+    state: present
+    name:
+    - libguestfs-tools
+
+- name: Download ISO
+  ansible.builtin.get_url:
+    url: "{{ url }}"
+    checksum: "{{ checksum }}"
+    dest: /tmp/cloudimg.img
+
+- name: Copy CloudInit disk file
+  ansible.builtin.copy:
+    remote_src: true
+    src: /tmp/cloudimg.img
+    dest: /tmp/template.img
+
+- name: Install QEMU Guest Agent
+  ansible.builtin.shell:
+    cmd: |
+      virt-customize -a /tmp/template.img \
+        --install qemu-guest-agent \
+        --firstboot-command "systemctl enable --now qemu-guest-agent"
+
+- name: Check current VMs
+  ansible.builtin.shell:
+    cmd: "qm status {{ vm_id }}"
+  register: vm_check_result
+  failed_when: vm_check_result.rc > 2
+  changed_when: vm_check_result.rc == 0
+
+- name: Delete existing template
+  when: vm_check_result.rc == 0
+  ansible.builtin.shell:
+    cmd: "qm destroy {{ vm_id }}"
+
+- name: Create template
+  ansible.builtin.shell:
+    cmd: |
+      qm create {{ vm_id }} \
+      --name {{ vm_name }} \
+      --memory 2048 \
+      --net0 virtio,bridge=vmbr0
+
+- name: Import disk
+  ansible.builtin.shell:
+    cmd: |
+      qm importdisk {{ vm_id }} \
+      /tmp/template.img {{ vm_storage }} \
+      -format qcow2
+
+- name: Attach disk to SCSI
+  ansible.builtin.shell:
+    cmd: |
+      qm set {{ vm_id }} \
+      --scsihw virtio-scsi-pci \
+      --scsi0 {{ vm_storage }}:vm-{{ vm_id }}-disk-0
+
+- name: Resize disk
+  ansible.builtin.shell:
+    cmd: |
+      qm disk resize {{ vm_id }} \
+      scsi0 {{ disk_size }}
+
+- name: Add required CloudImg settings
+  ansible.builtin.shell:
+    cmd: |
+      qm set {{ vm_id }} \
+      --ide2 {{ vm_storage }}:cloudinit \
+      --boot c --bootdisk scsi0 \
+      --agent enabled=1,fstrim_cloned_disks=1 \
+      --serial0 socket \
+      --vga serial0
+
+- name: Default to DHCP
+  ansible.builtin.shell:
+    cmd: qm set {{ vm_id }} --ipconfig0 ip=dhcp
+
+- name: Convert to template
+  ansible.builtin.shell:
+    cmd: "qm template {{ vm_id }}"
