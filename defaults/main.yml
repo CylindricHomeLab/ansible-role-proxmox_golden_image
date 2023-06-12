@@ -1,0 +1,7 @@
+---
+vm_storage: local-zfs
+vm_name: ubuntu-22.04-1
+vm_id: "90{{ inventory_hostname[-2:] }}"
+url: https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-amd64.img
+checksum: "sha256:345fbbb6ec827ca02ec1a1ced90f7d40d3fd345811ba97c5772ac40e951458e1"
+disk_size: 8G
